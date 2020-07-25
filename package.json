@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "deploy": "zip -r lambdaFn.zip . && aws lambda update-function-code --function-name=schedulerFn --zip-file fileb:///$PWD/lambdaFn.zip"
+    "deploy": "rm -f ./lambdaFn.zip && zip -r lambdaFn.zip . -x '*.git*' && aws lambda update-function-code --function-name=schedulerFn --zip-file fileb:///$PWD/lambdaFn.zip"
   },
   "repository": {
     "type": "git",

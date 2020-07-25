@@ -39,26 +39,19 @@ exports.handler = async (event) => {
     }]
 
     const result = {};
-    
-    scheduleQueue.forEach(scheduleObj => {
-        lambda.getFunction({
-            FunctionName: scheduleObj.fnName,
-            Qualifier: scheduleObj.fnQualifier,
-        }, (errFn, dataFn) => {
 
-            result['dateFn'] = dataFn;
-            if (errFn) {
-                // TODO: Check if the details are in S3, if yes create and run
-                result[scheduleObj.jobId] = {
-                    status: 'failed',
-                    error: 'Function does not exists'
-                };
-            } else {
-                const fnToRun = dataFn.Configuration;
+    for (const scheduleObj of scheduleQueue) {
+        try {
+            const dataFn = await lambda.getFunction({
+                FunctionName: scheduleObj.fnName,
+                Qualifier: scheduleObj.fnQualifier,
+            }).promise();
+            const fnToRun = dataFn.Configuration;
 
-                // https://docs.aws.amazon.com/lambda/latest/dg/API_FunctionConfiguration.html#SSS-Type-FunctionConfiguration-State
-                if (fnToRun.State === 'Active' || fnToRun.State === 'Inactive') {
-                    lambda.invoke({
+            // https://docs.aws.amazon.com/lambda/latest/dg/API_FunctionConfiguration.html#SSS-Type-FunctionConfiguration-State
+            if (fnToRun.State === 'Active' || fnToRun.State === 'Inactive') {
+                try {
+                    const dataRun = await lambda.invoke({
                         FunctionName: scheduleObj.fnName,
                         Qualifier: scheduleObj.fnQualifier,
                         // documentation bug https://github.com/aws/aws-sdk-js/issues/1876
@@ -66,41 +59,42 @@ exports.handler = async (event) => {
                             userAA: scheduleObj.userAA,
                             payload: scheduleObj.payload
                         }),
-                    }, (errRun, dataRun) => {
-                        result['dataRun'] = dataRun;
-
-                        if (errRun) {
-                            console.error('Function couldn\'t run. ', errRun.stack);
-                            result[scheduleObj.jobId] = {
-                                status: 'failed',
-                                error: errRun
-                            };
-                        } else {
-                            if (dataRun.StatusCode === 200) {
-                                // Function ran successfully 🎉 
-                                result[scheduleObj.jobId] = {
-                                    status: 'success',
-                                    data: JSON.parse(dataRun.Payload)
-                                }
-                            } else {
-                                // Function itself ran into an error
-                                result[scheduleObj.jobId] = {
-                                    status: 'failed',
-                                    data: JSON.parse(dataRun.Payload)
-                                }
-                            }
+                    }).promise();
+                    if (dataRun.StatusCode === 200) {
+                        // Function ran successfully 🎉 
+                        result[scheduleObj.jobId] = {
+                            status: 'success',
+                            data: JSON.parse(dataRun.Payload)
                         }
+                    } else {
+                        // Function itself ran into an error
+                        result[scheduleObj.jobId] = {
+                            status: 'failed',
+                            data: JSON.parse(dataRun.Payload)
+                        }
+                    }
 
-                    })
-                } else {
+                } catch (errRun) {
+                    console.error('Function couldn\'t run. ', errRun.stack);
                     result[scheduleObj.jobId] = {
                         status: 'failed',
-                        error: 'Function creation failed previously/is being created.'
-                    }
+                        error: errRun
+                    };
+                }
+            } else {
+                result[scheduleObj.jobId] = {
+                    status: 'failed',
+                    error: 'Function creation failed previously/is being created.'
                 }
             }
-        })
-    });
+
+        } catch (errFn) {
+            result[scheduleObj.jobId] = {
+                status: 'failed',
+                error: 'Function does not exists'
+            };
+        }
+    }
     
     return result;
 }
