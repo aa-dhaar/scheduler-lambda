@@ -6,5 +6,6 @@ Make sure aws cli, node and [ncc](github.com/vercel/ncc) are installed. Configur
 
 1. Get the .env file and store it in root
 2. Install with `npm i`
-3. Deploy with `npm run deploy`
-
+3. Build with `npm run build`
+4. Deploy creatorFn with `npm run deploy:creator`
+5. Deploy executorFn with `npm run deploy:executor`

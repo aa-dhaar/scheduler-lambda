@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "deploy": "rm -f ./lambdaFn.zip && ncc build -m index.js && zip -j lambdaFn.zip dist/index.js && aws lambda update-function-code --function-name=schedulerFn --zip-file fileb:///$PWD/lambdaFn.zip"
+    "build": "rm -f ./lambdaFn.zip && ncc build -m index.js && zip -j lambdaFn.zip dist/index.js",
+    "deploy:executor": "aws lambda update-function-code --function-name=schedulerFn --zip-file fileb:///$PWD/lambdaFn.zip",
+    "deploy:creator": "aws lambda update-function-code --function-name=creatorFn --zip-file fileb:///$PWD/lambdaFn.zip"
   },
   "repository": {
     "type": "git",
