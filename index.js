@@ -1,9 +1,5 @@
 require('dotenv').config();
-
-
-
 const AWS = require("aws-sdk");
-const { v4: uuidv4 } = require('uuid');
 
 AWS.config.getCredentials(function(err) {
   if (err) console.error(err.stack);
@@ -12,31 +8,71 @@ AWS.config.getCredentials(function(err) {
     console.log("AWS Configured");
   }
 });
+
+// AWS bug that is not auto-updating region
 AWS.config.update({region:'us-east-1'});
 
 const lambda = new AWS.Lambda();
+const secretManager = new AWS.SecretsManager();
+
+const initOptions = {/* initialization options */};
+const pgp = require('pg-promise')(initOptions);
 
 /**
  * 
  * @param {} event Currently null or {}
  */
 exports.handler = async (event) => {
-    console.log(event,cn);
-    // TODO: Convert these to database fetch results
-
-    const scheduleObj = {
-        jobId: uuidv4(),
-        fnName: 'fiu_ID',
-        fnQualifier: '$LATEST',
-        userAA: 'pikachu@aggregator',
-        FIUpayload: {
-            limits: {
-                700: 'high',
-                500: 'medium',
-                300: 'low'
-            }
-        }
+    
+    // Connect To Secret Manager & Database
+    const data = await secretManager.getSecretValue({SecretId: 'arn:aws:secretsmanager:us-east-1:788726710547:secret:postgres-q03L8P'}).promise()
+    
+    secret = JSON.parse(data.SecretString);
+    const cn = {
+        host: process.env.PGHOST,
+        port: process.env.PGPORT,
+        database: process.env.PGDATABASE,
+        user: process.env.PGUSER,
+        password: secret.password,
+        max: 1 
     };
+    
+    const db = pgp(cn);
+
+    const scheduleObj = await db.oneOrNone(`SELECT jobs.ID as jobId,`
+    +  ` jobs.STATE as jobState,`
+    +  ` job.RETRY_COUNT as jobRetry,`
+    +  ` job.AA_ID as userAA,`
+    +  ` job.REQUEST_PARAMS as FIUpayload,`
+    +  ` job.FUNCTION_ID as fnId,`
+    +  ` functions.FUNCTION_NAME as fnName,`
+    +  ` functions.STATE as fnState,`
+    // +  ` functions.S3_LOCATION as fnLoc,`  // Don't need location in Scheduler Lambda
+    +  ` functions.RESULT_JSON_SCHEMA as fnJsonSchema`
+    +  ` FROM jobs`
+    +      ` WHERE jobState='CREATED' AND (fnState='ACTIVE' OR fnState='INACTIVE')`
+    +          ` INNER JOIN functions ON  functions.ID = jobs.FUNCTION_ID`
+    +  ` ORDER BY jobs.CREATED DESC LIMIT 1`) 
+    console.log(scheduleObj);
+
+    // Return if no object in queue
+    if (!scheduleObj) {
+        return "Nothing in Queue";
+    }
+
+    const updateJob = async (newState, jobResult='') => {
+        await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 WHERE ID = $1', [scheduleObj.jobId, newState, jobResult])
+    }
+
+    const increaseRetry = async (jobResult) => {
+        if (scheduleObj.jobRetry >= process.env.MAX_RETRIES)
+            await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobId, 'FAILED', jobResult, scheduleObj.jobRetry+1])
+        else
+            await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobId, 'CREATED', jobResult, scheduleObj.jobRetry+1])
+
+    }
+
+    scheduleObj['fnQualifier'] = '$LATEST';
 
     let result = {};
     try {
@@ -50,6 +86,8 @@ exports.handler = async (event) => {
         if (fnToRun.State === 'Active' || fnToRun.State === 'Inactive') {
             try {
                 // update: State -> Processing
+                await updateJob('PROCESSING');
+
                 const dataRun = await lambda.invoke({
                     FunctionName: scheduleObj.fnName,
                     Qualifier: scheduleObj.fnQualifier,
@@ -59,9 +97,9 @@ exports.handler = async (event) => {
                         payload: scheduleObj.payload
                     }),
                 }).promise();
+
                 if (dataRun.StatusCode === 200) {
                     // Function ran successfully 🎉 
-                    // update: State -> Processed
 
                     //check for validation
                     result = {
@@ -71,16 +109,14 @@ exports.handler = async (event) => {
                     }
                 } else {
                     // Function itself ran into an error
-                    // update: State -> Processed
-
-                    // TODO: Recheck it in docs
-
                     result = {
                         data: dataRun.Payload,
                         log: dataRun.LogResult,
                         error: dataRun.FunctionError
                     }
                 }
+
+                updateJob('SUCCESS', JSON.stringify(result))
 
             } catch (errRun) {
                 // update: State -> Created & Retry++ (if r >= 3) set failed
@@ -91,17 +127,17 @@ exports.handler = async (event) => {
                     error: errRun.code,
                     logs: errRun.stack
                 }
+                increaseRetry(JSON.stringify(result))
             }
         } else {
             // Function is not yet created.
             console.error(`E4.1 Function not created for job ${scheduleObj.jobId}`)
+            return "E4.1";
         }
 
     } catch (errFn) {
-        console.error(`E4.2 Function pending creation for job ${scheduleObj.jobId}`)
-
-        // update: State -> Creating
-
+        console.error(`E4.2 Function pending creation for job ${scheduleObj.jobId}`);
+        return "E4.2";
     }
     
     return result;
