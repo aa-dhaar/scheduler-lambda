@@ -21,12 +21,12 @@ const lambda = new AWS.Lambda();
  * @param {} event Currently null or {}
  */
 exports.handler = async (event) => {
-    console.log(event);
+    console.log(event,cn);
     // TODO: Convert these to database fetch results
 
-    const scheduleQueue = [{
+    const scheduleObj = {
         jobId: uuidv4(),
-        fnName: 'arn:aws:lambda:us-east-1:788726710547:function:testFn',
+        fnName: 'fiu_ID',
         fnQualifier: '$LATEST',
         userAA: 'pikachu@aggregator',
         FIUpayload: {
@@ -36,64 +36,72 @@ exports.handler = async (event) => {
                 300: 'low'
             }
         }
-    }]
+    };
 
-    const result = {};
+    let result = {};
+    try {
+        const dataFn = await lambda.getFunction({
+            FunctionName: scheduleObj.fnName,
+            Qualifier: scheduleObj.fnQualifier,
+        }).promise();
+        const fnToRun = dataFn.Configuration;
 
-    for (const scheduleObj of scheduleQueue) {
-        try {
-            const dataFn = await lambda.getFunction({
-                FunctionName: scheduleObj.fnName,
-                Qualifier: scheduleObj.fnQualifier,
-            }).promise();
-            const fnToRun = dataFn.Configuration;
+        // https://docs.aws.amazon.com/lambda/latest/dg/API_FunctionConfiguration.html#SSS-Type-FunctionConfiguration-State
+        if (fnToRun.State === 'Active' || fnToRun.State === 'Inactive') {
+            try {
+                // update: State -> Processing
+                const dataRun = await lambda.invoke({
+                    FunctionName: scheduleObj.fnName,
+                    Qualifier: scheduleObj.fnQualifier,
+                    // documentation bug https://github.com/aws/aws-sdk-js/issues/1876
+                    Payload: JSON.stringify({
+                        userAA: scheduleObj.userAA,
+                        payload: scheduleObj.payload
+                    }),
+                }).promise();
+                if (dataRun.StatusCode === 200) {
+                    // Function ran successfully 🎉 
+                    // update: State -> Processed
 
-            // https://docs.aws.amazon.com/lambda/latest/dg/API_FunctionConfiguration.html#SSS-Type-FunctionConfiguration-State
-            if (fnToRun.State === 'Active' || fnToRun.State === 'Inactive') {
-                try {
-                    const dataRun = await lambda.invoke({
-                        FunctionName: scheduleObj.fnName,
-                        Qualifier: scheduleObj.fnQualifier,
-                        // documentation bug https://github.com/aws/aws-sdk-js/issues/1876
-                        Payload: JSON.stringify({
-                            userAA: scheduleObj.userAA,
-                            payload: scheduleObj.payload
-                        }),
-                    }).promise();
-                    if (dataRun.StatusCode === 200) {
-                        // Function ran successfully 🎉 
-                        result[scheduleObj.jobId] = {
-                            status: 'success',
-                            data: JSON.parse(dataRun.Payload)
-                        }
-                    } else {
-                        // Function itself ran into an error
-                        result[scheduleObj.jobId] = {
-                            status: 'failed',
-                            data: JSON.parse(dataRun.Payload)
-                        }
+                    //check for validation
+                    result = {
+                        data: dataRun.Payload,
+                        log: dataRun.LogResult,
+                        error: null
                     }
+                } else {
+                    // Function itself ran into an error
+                    // update: State -> Processed
 
-                } catch (errRun) {
-                    console.error('Function couldn\'t run. ', errRun.stack);
-                    result[scheduleObj.jobId] = {
-                        status: 'failed',
-                        error: errRun
-                    };
+                    // TODO: Recheck it in docs
+
+                    result = {
+                        data: dataRun.Payload,
+                        log: dataRun.LogResult,
+                        error: dataRun.FunctionError
+                    }
                 }
-            } else {
-                result[scheduleObj.jobId] = {
-                    status: 'failed',
-                    error: 'Function creation failed previously/is being created.'
+
+            } catch (errRun) {
+                // update: State -> Created & Retry++ (if r >= 3) set failed
+
+                console.error('Function couldn\'t run. ', errRun.stack);
+                result = {
+                    data: null,
+                    error: errRun.code,
+                    logs: errRun.stack
                 }
             }
-
-        } catch (errFn) {
-            result[scheduleObj.jobId] = {
-                status: 'failed',
-                error: 'Function does not exists'
-            };
+        } else {
+            // Function is not yet created.
+            console.error(`E4.1 Function not created for job ${scheduleObj.jobId}`)
         }
+
+    } catch (errFn) {
+        console.error(`E4.2 Function pending creation for job ${scheduleObj.jobId}`)
+
+        // update: State -> Creating
+
     }
     
     return result;
