@@ -50,9 +50,9 @@ exports.handler = async (event) => {
     +  ` functions.STATE as fnState,`
     // +  ` functions.S3_LOCATION as fnLoc,`  // Don't need location in Scheduler Lambda
     +  ` functions.RESULT_JSON_SCHEMA as fnJsonSchema`
-    +  ` FROM jobs`
+    +  ` FROM jobs, functions`
     +      ` WHERE jobs.STATE = 'CREATED' AND ( functions.STATE = 'ACTIVE' OR functions.STATE = 'INACTIVE')`
-    +          ` INNER JOIN functions ON  functions.ID = jobs.FUNCTION_ID`
+    // +          ` INNER JOIN functions ON  functions.ID = jobs.FUNCTION_ID`
     +  ` ORDER BY jobs.CREATED DESC LIMIT 1`) 
     console.log(scheduleObj);
 
