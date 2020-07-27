@@ -203,7 +203,7 @@ exports.creatorHandle = async (event) => {
         }, 
         FunctionName: `fiu_${fn.id}`, 
         Handler: fn.handler, 
-        Role: "arn:aws:iam::788726710547:role/VDRSchedulerLambdaRole", 
+        Role: "arn:aws:iam::788726710547:role/VDRFiuBinaryLambdaRole", 
         Runtime: fn.runtime, 
         Tags: {
             "DEPARTMENT": "FIU_RES"
