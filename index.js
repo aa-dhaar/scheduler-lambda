@@ -1,5 +1,8 @@
 require('dotenv').config();
 const AWS = require("aws-sdk");
+const initOptions = {/* initialization options */};
+const pgp = require('pg-promise')(initOptions);
+const validate = require('jsonschema').validate;
 
 AWS.config.getCredentials(function(err) {
   if (err) console.error(err.stack);
@@ -15,8 +18,6 @@ AWS.config.update({region:'us-east-1'});
 const lambda = new AWS.Lambda();
 const secretManager = new AWS.SecretsManager();
 
-const initOptions = {/* initialization options */};
-const pgp = require('pg-promise')(initOptions);
 
 /**
  * 
@@ -102,11 +103,20 @@ exports.handler = async (event) => {
                     // Function ran successfully 🎉 
 
                     //check for validation
-                    result = {
-                        data: dataRun.Payload,
-                        log: dataRun.LogResult,
-                        error: null
+                    if (validate(dataRun.Payload, JSON.parse(scheduleObj.fnJsonSchema))) {
+                        result = {
+                            data: dataRun.Payload,
+                            log: dataRun.LogResult,
+                            error: null
+                        }
+                    } else {
+                        result = {
+                            data: dataRun.Payload,
+                            log: dataRun.LogResult,
+                            error: 'Validation Failed'
+                        }
                     }
+                    
                 } else {
                     // Function itself ran into an error
                     result = {
