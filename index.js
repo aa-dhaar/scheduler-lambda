@@ -1,4 +1,3 @@
-require('dotenv').config();
 const AWS = require("aws-sdk");
 const initOptions = {/* initialization options */};
 const pgp = require('pg-promise')(initOptions);
@@ -24,6 +23,7 @@ const secretManager = new AWS.SecretsManager();
  * @param {} event Currently null or {}
  */
 exports.handler = async (event) => {
+    console.log('Executor Running', process.env);
     
     // Connect To Secret Manager & Database
     const data = await secretManager.getSecretValue({SecretId: 'arn:aws:secretsmanager:us-east-1:788726710547:secret:postgres-q03L8P'}).promise()
@@ -66,7 +66,7 @@ exports.handler = async (event) => {
     }
 
     const increaseRetry = async (jobResult) => {
-        if (scheduleObj.jobRetry >= process.env.MAX_RETRIES)
+        if (scheduleObj.jobRetry >= +process.env.MAX_RETRIES)
             await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobId, 'FAILED', jobResult, scheduleObj.jobRetry+1])
         else
             await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobId, 'CREATED', jobResult, scheduleObj.jobRetry+1])

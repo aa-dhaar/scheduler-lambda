@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "deploy": "rm -f ./lambdaFn.zip && zip -r lambdaFn.zip . -x '*.git*' && aws lambda update-function-code --function-name=schedulerFn --zip-file fileb:///$PWD/lambdaFn.zip"
+    "deploy": "rm -f ./lambdaFn.zip && ncc build -m index.js && zip -j lambdaFn.zip dist/index.js && aws lambda update-function-code --function-name=schedulerFn --zip-file fileb:///$PWD/lambdaFn.zip"
   },
   "repository": {
     "type": "git",
@@ -19,7 +19,6 @@
   "homepage": "https://github.com/aa-dhaar/scheduler-lambda#readme",
   "dependencies": {
     "aws-sdk": "^2.720.0",
-    "dotenv": "^8.2.0",
     "jsonschema": "^1.2.6",
     "pg-promise": "^10.5.8"
   }
