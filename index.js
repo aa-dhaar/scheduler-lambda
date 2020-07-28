@@ -103,7 +103,7 @@ exports.handler = async (event) => {
                     // Function ran successfully 🎉 
 
                     //check for validation
-                    if (validate(dataRun.Payload, JSON.parse(scheduleObj.fnJsonSchema))) {
+                    if (validate(dataRun.Payload, JSON.parse(scheduleObj.fnJsonSchema)).valid) {
                         result = {
                             data: dataRun.Payload,
                             log: dataRun.LogResult,
@@ -156,7 +156,7 @@ exports.handler = async (event) => {
 // https://docs.aws.amazon.com/lambda/latest/dg/with-s3.html
 // https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Lambda.html#createFunction-property
 exports.creatorHandle = async (event) => {
-    console.log('Creator Running', process.env, event);
+    console.log('Creator Running', event);
     
     // Connect To Secret Manager & Database
     const data = await secretManager.getSecretValue({SecretId: 'arn:aws:secretsmanager:us-east-1:788726710547:secret:postgres-q03L8P'}).promise()
@@ -173,11 +173,11 @@ exports.creatorHandle = async (event) => {
     
     const db = pgp(cn); 
     console.log('DB Connected');
-    // let fn = await db.one('SELECT * FROM functions WHERE S3_LOCATION=$1',[event.Records[0].s3.bucket.name + event.Records[0].s3.object.key]);
-    let fn = null;
+    let fn = "";
+    fn = await db.query('SELECT * FROM functions WHERE S3_LOCATION=$1',[event.Records[0].s3.bucket.name + event.Records[0].s3.object.key]);
     console.log('FN', fn);
 
-    if (!fn) {
+    if (true) {
         // throw "Err: Entry not found in DB"
         fn = {
             id: '123123123',
