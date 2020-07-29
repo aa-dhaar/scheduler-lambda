@@ -1,0 +1,16 @@
+{
+  "name": "plain-input-print",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rm -f ./${PWD##*/}.zip && ncc build -m index.js && zip -j ${PWD##*/}.zip dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.19.2"
+  }
+}

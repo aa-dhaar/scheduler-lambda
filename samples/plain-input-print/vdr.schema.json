@@ -1,0 +1,17 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "http://www.some-fiu.com/function.schema.json",
+    "title": "Simple Package 1",
+    "description": "Simple package that returns a boolean",
+    "type": "object",
+    "properties": {
+      "isHuman": {
+        "description": "Is the investor a human?",
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "isHuman"
+    ]
+  }
