@@ -23,7 +23,7 @@ const secretManager = new AWS.SecretsManager();
  * @param {} event Currently null or {}
  */
 exports.handler = async (event) => {
-    console.log('Executor Running', process.env);
+    console.log('Executor Running');
     
     // Connect To Secret Manager & Database
     const data = await secretManager.getSecretValue({SecretId: 'arn:aws:secretsmanager:us-east-1:788726710547:secret:postgres-q03L8P'}).promise()
@@ -53,11 +53,16 @@ exports.handler = async (event) => {
     +  ` FROM jobs, functions`
     +      ` WHERE jobs.STATE = 'CREATED' AND ( functions.STATE = 'ACTIVE' OR functions.STATE = 'INACTIVE')`
     // +          ` INNER JOIN functions ON  functions.ID = jobs.FUNCTION_ID`
-    +  ` ORDER BY jobs.CREATED DESC LIMIT 1`) 
-    console.log(scheduleObj);
+    +  ` ORDER BY jobs.created DESC LIMIT 1`) 
+    console.log('Job', scheduleObj);
 
     // Return if no object in queue
     if (!scheduleObj) {
+
+        const scheduleObjx = await db.manyOrNone(`SELECT * FROM jobs`) 
+        console.log(scheduleObjx)
+        const scheduleObjxy = await db.manyOrNone(`SELECT * FROM functions`) 
+        console.log(scheduleObjxy)
         return "Nothing in Queue";
     }
 
@@ -156,7 +161,7 @@ exports.handler = async (event) => {
 // https://docs.aws.amazon.com/lambda/latest/dg/with-s3.html
 // https://docs.aws.amazon.com/AWSJavaScriptSDK/latest/AWS/Lambda.html#createFunction-property
 exports.creatorHandle = async (event) => {
-    console.log('Creator Running', event);
+    console.log('Creator Running', event.Records[0].s3.object, event.Records[0].s3.bucket);
     
     // Connect To Secret Manager & Database
     const data = await secretManager.getSecretValue({SecretId: 'arn:aws:secretsmanager:us-east-1:788726710547:secret:postgres-q03L8P'}).promise()
@@ -174,20 +179,13 @@ exports.creatorHandle = async (event) => {
     const db = pgp(cn); 
     console.log('DB Connected');
     let fn = "";
-    fn = await db.query('SELECT * FROM functions WHERE S3_LOCATION=$1',[event.Records[0].s3.bucket.name + event.Records[0].s3.object.key]);
+    fn = await db.oneOrNone('SELECT * FROM functions WHERE S3_LOCATION=$1 LIMIT 1',[event.Records[0].s3.object.key]);
     console.log('FN', fn);
 
-    if (true) {
-        // throw "Err: Entry not found in DB"
-        fn = {
-            id: '123123123',
-            fiu_id: '345',
-            handler: 'lambda/app.lambda_handler',
-            runtime: 'python3.8'
-        }
+    if (!fn) {
+        throw "Err: Entry not found in DB"
 
     }
-    console.log(fn);
     // return fn;
 
     const resp = await lambda.createFunction({
@@ -204,6 +202,7 @@ exports.creatorHandle = async (event) => {
         FunctionName: `fiu_${fn.id}`, 
         Handler: fn.handler, 
         Role: "arn:aws:iam::788726710547:role/VDRFiuBinaryLambdaRole", 
+        // Runtime: 'nodejs12.x', 
         Runtime: fn.runtime, 
         Tags: {
             "DEPARTMENT": "FIU_RES"
