@@ -250,3 +250,53 @@ exports.creatorHandle = async (event) => {
     }
     return resp;
 };
+
+
+/** Check a function's status if Pending */
+
+exports.stateCheckFn = async (event) => {
+    console.log('Scheduled State Check Fn Running');
+    
+    // Connect To Secret Manager & Database
+    const data = await secretManager.getSecretValue({SecretId: 'arn:aws:secretsmanager:us-east-1:788726710547:secret:postgres-q03L8P'}).promise()
+    
+    secret = JSON.parse(data.SecretString);
+    const cn = {
+        host: secret.host,
+        port: secret.port,
+        database: secret.dbname,
+        user: secret.username,
+        password: secret.password,
+        max: 1 
+    };
+    
+    const db = pgp(cn);
+    const fnQueue = await db.manyOrNone(`SELECT * FROM functions WHERE STATE=$1`,['PENDING']) 
+    // console.log(fnQueue);
+    const result = [];
+
+    for (i in fnQueue) {
+        const fn = fnQueue[i];
+        // if a function was not created even after 15 minutes, we mark it failed.
+        // if a function's code location does not match it's DB's location - it is pending update (or maybe check for CodeSHA)
+        try {
+            const dataFn = await lambda.getFunction({
+                FunctionName: `fiu_${fn.id}`,
+                Qualifier: '$LATEST'
+            }).promise();
+            console.log("Aada", fn.id, dataFn.Configuration.State)
+
+            // TODO: check if function is updating
+
+            result.push(pgp.as.format('UPDATE functions SET state = $1 WHERE id = $2', [dataFn.Configuration.State, fn.id]))
+        } catch {
+            if (new Date(fn.created) < new Date() - 15*60*1000) {
+                // This was created over 15 minutes ago.
+                result.push(pgp.as.format('UPDATE functions SET state = $1 WHERE id = $2', ['Failed', fn.id]))
+            }
+        }
+    }
+    console.log(result);
+    if (result.length > 0) await db.none(pgp.helpers.concat(result));
+    return result;
+}
