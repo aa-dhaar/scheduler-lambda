@@ -48,7 +48,7 @@ exports.handler = async (event) => {
     +  ` jobs.FUNCTION_ID as fnId,`
     +  ` functions.FUNCTION_NAME as fnName,`
     +  ` functions.STATE as fnState,`
-    // +  ` functions.S3_LOCATION as fnLoc,`  // Don't need location in Scheduler Lambda
+    +  ` functions.S3_LOCATION as fnLoc,`  // Don't need location in Scheduler Lambda
     +  ` functions.RESULT_JSON_SCHEMA as fnJsonSchema`
     +  ` FROM jobs, functions`
     +      ` WHERE jobs.STATE = 'CREATED' AND ( functions.STATE = 'ACTIVE' OR functions.STATE = 'INACTIVE')`
@@ -61,7 +61,7 @@ exports.handler = async (event) => {
 
         const scheduleObjx = await db.manyOrNone(`SELECT * FROM jobs`) 
         console.log(scheduleObjx)
-        const scheduleObjxy = await db.manyOrNone(`SELECT * FROM functions`) 
+        const scheduleObjxy = await db.manyOrNone(`SELECT * FROM functions WHERE fiu_id=$1`,['48063845-a3db-469d-8816-d818465c3a6d']) 
         console.log(scheduleObjxy)
         return "Nothing in Queue";
     }
@@ -184,37 +184,69 @@ exports.creatorHandle = async (event) => {
 
     if (!fn) {
         throw "Err: Entry not found in DB"
-
     }
     // return fn;
+    let resp;
 
-    const resp = await lambda.createFunction({
-        Code: {
-            S3Bucket: event.Records[0].s3.bucket.name, 
-            S3Key: event.Records[0].s3.object.key
-        }, 
-        Description: `Package ${fn.id} for FIU ${fn.fiu_id}`, 
-        Environment: {
-            Variables: {
-                "CREATION_DATE": (new Date()).toString(), 
+    try {
+        console.log("Getting Function");
+        const dataFn = await lambda.getFunction({
+            FunctionName: `fiu_${fn.id}`,
+            Qualifier: '$LATEST',
+        }).promise();
+        if (dataFn) {
+            try {
+                console.log("Updating Function")
+                resp = await lambda.updateFunctionCode({
+                    FunctionName: dataFn.Configuration.FunctionName,
+                    S3Bucket: event.Records[0].s3.bucket.name, 
+                    S3Key: event.Records[0].s3.object.key
+                }).promise();
+                if (fn.handler !== dataFn.Configuration.Handler || fn.runtime !== dataFn.Configuration.Runtime) {
+                    console.log("Updating Handler & Runtime")
+                    await lambda.updateFunctionConfiguration({
+                        FunctionName: dataFn.Configuration.FunctionName,
+                        Handler: fn.handler, 
+                        Runtime: fn.runtime
+                    }).promise();
+                }
+            } catch (e) {
+                console.log("Error while updating", e)
             }
-        }, 
-        FunctionName: `fiu_${fn.id}`, 
-        Handler: fn.handler, 
-        Role: "arn:aws:iam::788726710547:role/VDRFiuBinaryLambdaRole", 
-        // Runtime: 'nodejs12.x', 
-        Runtime: fn.runtime, 
-        Tags: {
-            "DEPARTMENT": "FIU_RES"
-        }, 
-        Timeout: 15,
-        VpcConfig: { 
-            SecurityGroupIds: [ "sg-0dc27f2e5b0369bee" ],
-            SubnetIds: [ "subnet-08592b3f5a6fcebbc" ],
-            // VpcId: "vpc-072adfdb316436fd6"
+        } else {
+            // well it shouldn't be necessary, but JIC
+            console.log("Jumping")
+            throw "Jump to catch"
         }
-        
-    }).promise();
-
+    } catch (e) {
+        console.log("Creating Function");
+        resp = await lambda.createFunction({
+            Code: {
+                S3Bucket: event.Records[0].s3.bucket.name, 
+                S3Key: event.Records[0].s3.object.key
+            }, 
+            Description: `Package ${fn.id} for FIU ${fn.fiu_id}`, 
+            Environment: {
+                Variables: {
+                    "CREATION_DATE": (new Date()).toString(), 
+                }
+            }, 
+            FunctionName: `fiu_${fn.id}`, 
+            Handler: fn.handler, 
+            Role: "arn:aws:iam::788726710547:role/VDRFiuBinaryLambdaRole", 
+            // Runtime: 'nodejs12.x', 
+            Runtime: fn.runtime, 
+            Tags: {
+                "DEPARTMENT": "FIU_RES"
+            }, 
+            Timeout: 15,
+            VpcConfig: { 
+                SecurityGroupIds: [ "sg-0dc27f2e5b0369bee" ],
+                SubnetIds: [ "subnet-08592b3f5a6fcebbc" ],
+                // VpcId: "vpc-072adfdb316436fd6"
+            }
+            
+        }).promise();
+    }
     return resp;
 };
