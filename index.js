@@ -39,42 +39,41 @@ exports.handler = async (event) => {
     };
     
     const db = pgp(cn);
+    await db.none('UPDATE functions SET state = $1 WHERE state = $2',['ACTIVE', 'Active'])
+    await db.none('UPDATE functions SET state = $1 WHERE state = $2',['FAILED', 'Failed'])
 
-    const scheduleObj = await db.oneOrNone(`SELECT jobs.ID as jobId,`
-    +  ` jobs.STATE as jobState,`
-    +  ` jobs.RETRY_COUNT as jobRetry,`
-    +  ` jobs.AA_ID as userAA,`
-    +  ` jobs.REQUEST_PARAMS as FIUpayload,`
-    +  ` jobs.FUNCTION_ID as fnId,`
-    +  ` functions.FUNCTION_NAME as fnName,`
-    +  ` functions.STATE as fnState,`
-    +  ` functions.S3_LOCATION as fnLoc,`  // Don't need location in Scheduler Lambda
-    +  ` functions.RESULT_JSON_SCHEMA as fnJsonSchema`
-    +  ` FROM jobs, functions`
-    +      ` WHERE jobs.STATE = 'CREATED' AND ( functions.STATE = 'ACTIVE' OR functions.STATE = 'INACTIVE')`
-    // +          ` INNER JOIN functions ON  functions.ID = jobs.FUNCTION_ID`
+    const scheduleObj = await db.oneOrNone(`SELECT jobs.ID as jobid,`
+    +  ` jobs.STATE as jobstate,`
+    +  ` jobs.RETRY_COUNT as jobretry,`
+    +  ` jobs.AA_ID as useraa,`
+    +  ` jobs.REQUEST_PARAMS as fiupayload,`
+    +  ` jobs.FUNCTION_ID as fnid,`
+    +  ` functions.FUNCTION_NAME as fnname,`
+    +  ` functions.STATE as fnstate,`
+    +  ` functions.S3_LOCATION as fnloc,`  // Don't need location in Scheduler Lambda
+    +  ` functions.RESULT_JSON_SCHEMA as fnjsonschema`
+    +  ` FROM jobs `
+    // +  ` FROM jobs, functions`
+    // +      ` WHERE `
+    // +      ` AND jobs.FUNCTION_ID = functions.ID `
+    +          ` INNER JOIN functions ON functions.ID = jobs.FUNCTION_ID AND jobs.STATE = 'CREATED' AND ( functions.STATE = 'ACTIVE' OR functions.STATE = 'INACTIVE')`
     +  ` ORDER BY jobs.created DESC LIMIT 1`) 
     console.log('Job', scheduleObj);
 
     // Return if no object in queue
     if (!scheduleObj) {
-
-        const scheduleObjx = await db.manyOrNone(`SELECT * FROM jobs`) 
-        console.log(scheduleObjx)
-        const scheduleObjxy = await db.manyOrNone(`SELECT * FROM functions WHERE fiu_id=$1`,['48063845-a3db-469d-8816-d818465c3a6d']) 
-        console.log(scheduleObjxy)
         return "Nothing in Queue";
     }
 
     const updateJob = async (newState, jobResult='') => {
-        await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 WHERE ID = $1', [scheduleObj.jobId, newState, jobResult])
+        await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 WHERE ID = $1', [scheduleObj.jobid, newState, jobResult])
     }
 
     const increaseRetry = async (jobResult) => {
-        if (scheduleObj.jobRetry >= 3)
-            await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobId, 'FAILED', jobResult, scheduleObj.jobRetry+1])
+        if (scheduleObj.jobretry >= 3)
+            await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobid, 'FAILED', jobResult, scheduleObj.jobretry+1])
         else
-            await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobId, 'CREATED', jobResult, scheduleObj.jobRetry+1])
+            await db.none('UPDATE jobs SET STATE=$2, LAST_UPDATED = NOW(), RESULT=$3 , RETRY_COUNT=$4  WHERE ID = $1', [scheduleObj.jobid, 'CREATED', jobResult, scheduleObj.jobretry+1])
 
     }
 
@@ -83,8 +82,8 @@ exports.handler = async (event) => {
     let result = {};
     try {
         const dataFn = await lambda.getFunction({
-            FunctionName: scheduleObj.fnName,
-            Qualifier: scheduleObj.fnQualifier,
+            FunctionName: `fiu_${scheduleObj.fnid}`,
+            Qualifier: '$LATEST',
         }).promise();
         const fnToRun = dataFn.Configuration;
 
@@ -95,12 +94,12 @@ exports.handler = async (event) => {
                 await updateJob('PROCESSING');
 
                 const dataRun = await lambda.invoke({
-                    FunctionName: scheduleObj.fnName,
-                    Qualifier: scheduleObj.fnQualifier,
+                    FunctionName: `fiu_${scheduleObj.fnid}`,
+                    Qualifier: '$LATEST',
                     // documentation bug https://github.com/aws/aws-sdk-js/issues/1876
                     Payload: JSON.stringify({
-                        userAA: scheduleObj.userAA,
-                        payload: scheduleObj.payload
+                        userAA: scheduleObj.useraa,
+                        payload: scheduleObj.fiupayload
                     }),
                 }).promise();
 
@@ -108,7 +107,7 @@ exports.handler = async (event) => {
                     // Function ran successfully 🎉 
 
                     //check for validation
-                    if (validate(dataRun.Payload, JSON.parse(scheduleObj.fnJsonSchema)).valid) {
+                    if (validate(dataRun.Payload, JSON.parse(scheduleObj.fnjsonschema)).valid) {
                         result = {
                             data: dataRun.Payload,
                             log: dataRun.LogResult,
@@ -146,12 +145,12 @@ exports.handler = async (event) => {
             }
         } else {
             // Function is not yet created.
-            console.error(`E4.1 Function not created for job ${scheduleObj.jobId}`)
+            console.error(`E4.1 Function not created for job ${scheduleObj.jobid}`)
             return "E4.1";
         }
 
     } catch (errFn) {
-        console.error(`E4.2 Function pending creation for job ${scheduleObj.jobId}`);
+        console.error(`E4.2 Function pending creation for job ${scheduleObj.jobid}`);
         return "E4.2";
     }
     
@@ -271,8 +270,10 @@ exports.stateCheckFn = async (event) => {
     };
     
     const db = pgp(cn);
+    // const fnQueue = await db.manyOrNone(`SELECT * FROM functions WHERE fiu_id=$1`,['7ec79ac6-a8ec-4223-82a1-6547442d7f32']) 
     const fnQueue = await db.manyOrNone(`SELECT * FROM functions WHERE STATE=$1`,['PENDING']) 
     // console.log(fnQueue);
+    // return; 
     const result = [];
 
     for (i in fnQueue) {
@@ -284,15 +285,13 @@ exports.stateCheckFn = async (event) => {
                 FunctionName: `fiu_${fn.id}`,
                 Qualifier: '$LATEST'
             }).promise();
-            console.log("Aada", fn.id, dataFn.Configuration.State)
-
             // TODO: check if function is updating
 
-            result.push(pgp.as.format('UPDATE functions SET state = $1 WHERE id = $2', [dataFn.Configuration.State, fn.id]))
+            result.push(pgp.as.format('UPDATE functions SET state = $1 WHERE id = $2', [dataFn.Configuration.State.toUpperCase(), fn.id]))
         } catch {
             if (new Date(fn.created) < new Date() - 15*60*1000) {
                 // This was created over 15 minutes ago.
-                result.push(pgp.as.format('UPDATE functions SET state = $1 WHERE id = $2', ['Failed', fn.id]))
+                result.push(pgp.as.format('UPDATE functions SET state = $1 WHERE id = $2', ['FAILED', fn.id]))
             }
         }
     }
