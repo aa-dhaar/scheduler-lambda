@@ -102,20 +102,21 @@ exports.handler = async (event) => {
                         payload: scheduleObj.fiupayload
                     }),
                 }).promise();
+                const dataResult = JSON.parse(dataRun.Payload);
 
                 if (dataRun.StatusCode === 200) {
                     // Function ran successfully 🎉 
 
                     //check for validation
-                    if (validate(dataRun.Payload, JSON.parse(scheduleObj.fnjsonschema)).valid) {
+                    if (validate(dataResult, JSON.parse(scheduleObj.fnjsonschema)).valid) {
                         result = {
-                            data: dataRun.Payload,
+                            data: dataResult,
                             log: dataRun.LogResult,
                             error: null
                         }
                     } else {
                         result = {
-                            data: dataRun.Payload,
+                            data: dataResult,
                             log: dataRun.LogResult,
                             error: 'Validation Failed'
                         }
@@ -124,7 +125,7 @@ exports.handler = async (event) => {
                 } else {
                     // Function itself ran into an error
                     result = {
-                        data: dataRun.Payload,
+                        data: dataResult,
                         log: dataRun.LogResult,
                         error: dataRun.FunctionError
                     }
