@@ -178,7 +178,7 @@ exports.creatorHandle = async (event) => {
     const db = pgp(cn); 
     console.log('DB Connected');
     let fn = "";
-    fn = await db.oneOrNone('SELECT * FROM functions WHERE S3_LOCATION=$1 LIMIT 1',[event.Records[0].s3.object.key]);
+    fn = await db.oneOrNone('SELECT * FROM functions WHERE S3_LOCATION=$1 OR S3_LOCATION=$2 LIMIT 1',[event.Records[0].s3.object.key,event.Records[0].s3.object.key.split('/')[1]]);
     console.log('FN', fn);
 
     if (!fn) {
@@ -272,7 +272,7 @@ exports.stateCheckFn = async (event) => {
     const db = pgp(cn);
     // const fnQueue = await db.manyOrNone(`SELECT * FROM functions WHERE fiu_id=$1`,['7ec79ac6-a8ec-4223-82a1-6547442d7f32']) 
     const fnQueue = await db.manyOrNone(`SELECT * FROM functions WHERE STATE=$1`,['PENDING']) 
-    // console.log(fnQueue);
+    console.log(fnQueue);
     // return; 
     const result = [];
 
@@ -295,7 +295,7 @@ exports.stateCheckFn = async (event) => {
             }
         }
     }
-    console.log(result);
+    // console.log(result);
     if (result.length > 0) await db.none(pgp.helpers.concat(result));
     return result;
 }
