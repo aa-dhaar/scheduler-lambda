@@ -97,41 +97,47 @@ exports.handler = async (event) => {
                     FunctionName: `fiu_${scheduleObj.fnid}`,
                     Qualifier: '$LATEST',
                     // documentation bug https://github.com/aws/aws-sdk-js/issues/1876
-                    Payload: JSON.stringify({
-                        userAA: scheduleObj.useraa,
-                        payload: scheduleObj.fiupayload
-                    }),
+                    Payload: JSON.stringify(scheduleObj.fiupayload),
                 }).promise();
+                console.log(dataRun.Payload)
+
                 const dataResult = JSON.parse(dataRun.Payload);
+                console.log('payload parsed')
 
                 if (dataRun.StatusCode === 200) {
                     // Function ran successfully 🎉 
 
                     //check for validation
                     if (validate(dataResult, JSON.parse(scheduleObj.fnjsonschema)).valid) {
+                        console.log("E2")
                         result = {
                             data: dataResult,
-                            log: dataRun.LogResult,
+                            // log: dataRun.LogResult,
                             error: null
                         }
+                        updateJob('SUCCESS', JSON.stringify(result))
                     } else {
+                        console.log("E4.3")
                         result = {
-                            data: dataResult,
-                            log: dataRun.LogResult,
+                            data: null,
+                            // log: dataRun.LogResult,
                             error: 'Validation Failed'
                         }
+                        updateJob('FAILED', JSON.stringify(result))
                     }
                     
                 } else {
                     // Function itself ran into an error
+                    console.log("E4.4")
                     result = {
-                        data: dataResult,
-                        log: dataRun.LogResult,
+                        data: null,
+                        // log: dataRun.LogResult,
                         error: dataRun.FunctionError
                     }
+                    updateJob('FAILED', JSON.stringify(result))
                 }
 
-                updateJob('SUCCESS', JSON.stringify(result))
+                
 
             } catch (errRun) {
                 // update: State -> Created & Retry++ (if r >= 3) set failed
@@ -140,9 +146,10 @@ exports.handler = async (event) => {
                 result = {
                     data: null,
                     error: errRun.code,
-                    logs: errRun.stack
+                    log: errRun.stack
                 }
-                increaseRetry(JSON.stringify(result))
+                updateJob('FAILED', JSON.stringify(result))
+                // increaseRetry(JSON.stringify(result))
             }
         } else {
             // Function is not yet created.
