@@ -142,7 +142,6 @@ exports.handler = async (event) => {
                     updateJob('FAILED', JSON.stringify(result))
                 }
 
-
             } catch (errRun) {
                 // update: State -> Created & Retry++ (if r >= 3) set failed
 
@@ -201,7 +200,7 @@ exports.creatorHandle = async (event) => {
     try {
         console.log("Getting Function");
         const dataFn = await lambda.getFunction({
-            FunctionName: `fiu_${fn.id}`,
+            FunctionName: `${fn.fiu_id}_${fn.id}`,
             Qualifier: '$LATEST',
         }).promise();
         if (dataFn) {
@@ -241,7 +240,7 @@ exports.creatorHandle = async (event) => {
                     "CREATION_DATE": (new Date()).toString(),
                 }
             },
-            FunctionName: `fiu_${fn.id}`,
+            FunctionName: `${fn.fiu_id}_${fn.id}`,
             Handler: fn.handler,
             Role: "arn:aws:iam::788726710547:role/VDRFiuBinaryLambdaRole",
             // Runtime: 'nodejs12.x', 
