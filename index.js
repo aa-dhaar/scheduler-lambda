@@ -92,6 +92,19 @@ exports.handler = async (event) => {
             try {
                 // update: State -> Processing
                 await updateJob('PROCESSING');
+                let schemaParsed;
+                try {
+                    schemaParsed = JSON.parse(scheduleObj.fnjsonschema);
+                } catch (eS) {
+                    result = {
+                        data: null,
+                        error: "Error parsing schema"
+                    };
+                    updateJob('FAILED', JSON.stringify(result));
+                    return result;
+                }
+                
+
 
                 const dataRun = await lambda.invoke({
                     FunctionName: `fiu_${scheduleObj.fnid}`,
@@ -108,7 +121,7 @@ exports.handler = async (event) => {
                     // Function ran successfully 🎉 
 
                     //check for validation
-                    if (validate(dataResult, JSON.parse(scheduleObj.fnjsonschema)).valid) {
+                    if (validate(dataResult, schemaParsed).valid) {
                         console.log("E2")
                         result = {
                             data: dataResult,
@@ -145,8 +158,7 @@ exports.handler = async (event) => {
                 console.error('Function couldn\'t run. ', errRun.stack);
                 result = {
                     data: null,
-                    error: errRun.code,
-                    log: errRun.stack
+                    error: errRun.stack
                 }
                 updateJob('FAILED', JSON.stringify(result))
                 // increaseRetry(JSON.stringify(result))
